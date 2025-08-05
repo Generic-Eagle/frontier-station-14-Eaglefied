@@ -9,16 +9,19 @@
     sprite: Clothing/Shoes/Boots/magboots.rsi
     layers:
     - state: icon
-      map: [ "enum.ToggleVisuals.Layer" ]
+      map: [ "enum.ToggleableVisuals.Layer" ]
   - type: Clothing
     sprite: Clothing/Shoes/Boots/magboots.rsi
   - type: ToggleClothing
     action: ActionToggleMagboots
-  - type: ToggleVerb
-    text: toggle-magboots-verb-get-data-text
+    mustEquip: false
   - type: ComponentToggler
     components:
     - type: NoSlip
+  - type: ItemTogglePrefix
+    prefixOn: on
+  - type: ToggleClothingPrefix
+    prefixOn: on
   - type: Magboots
   - type: ClothingSpeedModifier
     walkModifier: 0.85
@@ -26,12 +29,12 @@
   - type: Appearance
   - type: GenericVisualizer
     visuals:
-      enum.ToggleVisuals.Toggled:
-        enum.ToggleVisuals.Layer:
+      enum.ToggleableVisuals.Enabled:
+        enum.ToggleableVisuals.Layer:
           True: {state: icon-on}
           False: {state: icon}
   - type: StaticPrice
-    price: 200
+    price: 100 # Frontier 200<100
   - type: Tag
     tags:
     - WhitelistChameleon
@@ -105,17 +108,19 @@
       volume: 0.75
       temperature: 293.15
       moles:
-        - 0.153853429 # oxygen
-        - 0.153853429 # nitrogen
+      - 0.153853429 # oxygen
+      - 0.153853429 # nitrogen
   - type: Item
     sprite: null
     size: Normal
 
 - type: entity
+  parent: BaseAction
   id: ActionToggleMagboots
   name: Toggle Magboots
   description: Toggles the magboots on and off.
   components:
-  - type: InstantAction
+  - type: Action
     itemIconStyle: BigItem
+  - type: InstantAction
     event: !type:ToggleActionEvent

@@ -6,6 +6,7 @@ using Content.Client.Lobby;
 using Content.Client.UserInterface.Controls;
 using Content.Client.Players.PlayTimeTracking;
 using Content.Shared.CCVar;
+using Content.Shared.GameTicking; // Frontier
 using Content.Shared.Preferences;
 using Content.Shared.Roles;
 using Content.Shared.StatusIcon;
@@ -29,12 +30,14 @@ namespace Content.Client.LateJoin
         [Dependency] private readonly IEntitySystemManager _entitySystem = default!;
         [Dependency] private readonly JobRequirementsManager _jobRequirements = default!;
         [Dependency] private readonly IClientPreferencesManager _preferencesManager = default!;
+        [Dependency] private readonly ILogManager _logManager = default!;
 
         public event Action<(NetEntity, string)> SelectedId;
 
         private readonly ClientGameTicker _gameTicker;
         private readonly SpriteSystem _sprites;
         private readonly CrewManifestSystem _crewManifest;
+        private readonly ISawmill _sawmill;
 
         private readonly Dictionary<NetEntity, Dictionary<string, List<JobButton>>> _jobButtons = new();
         private readonly Dictionary<NetEntity, Dictionary<string, BoxContainer>> _jobCategories = new();
@@ -49,6 +52,7 @@ namespace Content.Client.LateJoin
             _sprites = _entitySystem.GetEntitySystem<SpriteSystem>();
             _crewManifest = _entitySystem.GetEntitySystem<CrewManifestSystem>();
             _gameTicker = _entitySystem.GetEntitySystem<ClientGameTicker>();
+            _sawmill = _logManager.GetSawmill("latejoin.panel");
 
             Title = Loc.GetString("late-join-gui-title");
 
@@ -66,7 +70,7 @@ namespace Content.Client.LateJoin
             SelectedId += x =>
             {
                 var (station, jobId) = x;
-                Logger.InfoS("latejoin", $"Late joining as ID: {jobId}");
+                _sawmill.Info($"Late joining as ID: {jobId}");
                 _consoleHost.ExecuteCommand($"joingame {CommandParsing.Escape(jobId)} {station}");
                 Close();
             };
@@ -82,7 +86,7 @@ namespace Content.Client.LateJoin
             _jobCategories.Clear();
 
             if (!_gameTicker.DisallowedLateJoin && _gameTicker.StationNames.Count == 0)
-                Logger.Warning("No stations exist, nothing to display in late-join GUI");
+                _sawmill.Warning("No stations exist, nothing to display in late-join GUI");
 
             foreach (var (id, name) in _gameTicker.StationNames)
             {
@@ -169,14 +173,14 @@ namespace Content.Client.LateJoin
 
                 foreach (var department in departments)
                 {
-                    var departmentName = Loc.GetString($"department-{department.ID}");
+                    var departmentName = Loc.GetString(department.Name);
                     _jobCategories[id] = new Dictionary<string, BoxContainer>();
-                    var stationAvailable = _gameTicker.JobsAvailable[id];
+                    var stationAvailable = _gameTicker.StationJobInformationList[id];
                     var jobsAvailable = new List<JobPrototype>();
 
                     foreach (var jobId in department.Roles)
                     {
-                        if (!stationAvailable.ContainsKey(jobId))
+                        if (!stationAvailable.JobsAvailable.ContainsKey(jobId))
                             continue;
 
                         jobsAvailable.Add(_prototypeManager.Index<JobPrototype>(jobId));
@@ -225,7 +229,8 @@ namespace Content.Client.LateJoin
 
                     foreach (var prototype in jobsAvailable)
                     {
-                        var value = stationAvailable[prototype.ID];
+                        // Frontier: stationAvailable[prototype.ID]; -> stationAvailable.JobsAvailable[prototype.ID];
+                        var value = stationAvailable.JobsAvailable[prototype.ID];
 
                         var jobLabel = new Label
                         {
@@ -292,29 +297,25 @@ namespace Content.Client.LateJoin
             }
         }
 
-        private void JobsAvailableUpdated(IReadOnlyDictionary<NetEntity, Dictionary<ProtoId<JobPrototype>, int?>> updatedJobs)
+        private void JobsAvailableUpdated(IReadOnlyDictionary<NetEntity, StationJobInformation> updatedJobs)
         {
-            foreach (var stationEntries in updatedJobs)
+            // Frontier: Made this more readable with simplified comparisons and LINQ expressions.
+            // Feel free to replace this with upstream code whenever, just mind that
+            // updatedJobs is now a dictionary of NetEntity to StationJobInformation.
+            // I changed this: jobInformation.TryGetValue   to this: jobInformation.JobsAvailable.TryGetValue
+            // Godspeed.
+            foreach (var (stationNetEntity, jobInformation) in updatedJobs)
             {
-                if (_jobButtons.ContainsKey(stationEntries.Key))
+                if (!_jobButtons.TryGetValue(stationNetEntity, out var existingJobEntries))
+                    continue;
+                foreach (var existingJobEntry in existingJobEntries)
                 {
-                    var jobsAvailable = stationEntries.Value;
-
-                    var existingJobEntries = _jobButtons[stationEntries.Key];
-                    foreach (var existingJobEntry in existingJobEntries)
+                    if (!jobInformation.JobsAvailable.TryGetValue(existingJobEntry.Key, out var updatedJobValue))
+                        continue;
+                    foreach (var matchingJobButton in existingJobEntry.Value.Where(matchingJobButton => matchingJobButton.Amount != updatedJobValue))
                     {
-                        if (jobsAvailable.ContainsKey(existingJobEntry.Key))
-                        {
-                            var updatedJobValue = jobsAvailable[existingJobEntry.Key];
-                            foreach (var matchingJobButton in existingJobEntry.Value)
-                            {
-                                if (matchingJobButton.Amount != updatedJobValue)
-                                {
-                                    matchingJobButton.RefreshLabel(updatedJobValue);
-                                    matchingJobButton.Disabled |= matchingJobButton.Amount == 0;
-                                }
-                            }
-                        }
+                        matchingJobButton.RefreshLabel(updatedJobValue);
+                        matchingJobButton.Disabled |= matchingJobButton.Amount == 0;
                     }
                 }
             }

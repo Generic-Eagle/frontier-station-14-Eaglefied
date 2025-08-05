@@ -24,7 +24,9 @@ public sealed partial class ShuttleMapControl : BaseShuttleControl
 {
     [Dependency] private readonly IGameTiming _timing = default!;
     [Dependency] private readonly IInputManager _inputs = default!;
-    [Dependency] private readonly IMapManager _mapManager = default!;
+    [Dependency] private readonly IEntityManager _entManager = default!; // Frontier
+
+    private readonly SharedMapSystem _mapSystem;
     private readonly ShuttleSystem _shuttles;
     private readonly SharedTransformSystem _xformSystem;
 
@@ -73,6 +75,7 @@ public sealed partial class ShuttleMapControl : BaseShuttleControl
     public ShuttleMapControl() : base(256f, 512f, 512f)
     {
         RobustXamlLoader.Load(this);
+        _mapSystem = EntManager.System<SharedMapSystem>();
         _shuttles = EntManager.System<ShuttleSystem>();
         _xformSystem = EntManager.System<SharedTransformSystem>();
         var cache = IoCManager.Resolve<IResourceCache>();
@@ -109,7 +112,7 @@ public sealed partial class ShuttleMapControl : BaseShuttleControl
         {
             if (args.Function == EngineKeyFunctions.UIClick)
             {
-                var mapUid = _mapManager.GetMapEntityId(ViewingMap);
+                var mapUid = _mapSystem.GetMapOrInvalid(ViewingMap);
 
                 var beaconsOnly = EntManager.TryGetComponent(mapUid, out FTLDestinationComponent? destComp) &&
                                   destComp.BeaconsOnly;
@@ -212,7 +215,7 @@ public sealed partial class ShuttleMapControl : BaseShuttleControl
         foreach (var mapObj in mapObjects)
         {
             // If it's a grid-map skip it.
-            if (mapObj is GridMapObject gridObj && EntManager.HasComponent<MapComponent>(gridObj.Entity))
+            if (mapObj is GridMapObject gridObj && (EntManager.HasComponent<MapComponent>(gridObj.Entity) || !_entManager.EntityExists(gridObj.Entity))) // Frontier: add EntityExists
                 continue;
 
             var mapCoords = _shuttles.GetMapCoordinates(mapObj);
@@ -249,7 +252,7 @@ public sealed partial class ShuttleMapControl : BaseShuttleControl
 
         DrawParallax(handle);
 
-        var viewedMapUid = _mapManager.GetMapEntityId(ViewingMap);
+        var viewedMapUid = _mapSystem.GetMapOrInvalid(ViewingMap);
         var matty = Matrix3Helpers.CreateInverseTransform(Offset, Angle.Zero);
         var realTime = _timing.RealTime;
         var viewBox = new Box2(Offset - WorldRangeVector, Offset + WorldRangeVector);
